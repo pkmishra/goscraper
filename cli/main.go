@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"gowatch/crawler"
+	"goscraper"
 	"os"
 )
 
@@ -16,6 +16,5 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
-
-	crawler.Run(*url, *depth, *pattern)
+	goscraper.Run(*url, *depth, *pattern)
 }

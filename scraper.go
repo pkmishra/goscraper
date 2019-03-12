@@ -1,4 +1,4 @@
-package crawler
+package goscraper
 
 import (
 	"fmt"
