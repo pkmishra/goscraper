@@ -3,16 +3,23 @@ package goscraper
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	url2 "net/url"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/willf/bloom"
 
 	"golang.org/x/net/html"
+)
+
+const (
+	MAX_RATE = 3
 )
 
 type deepUrl struct {
@@ -20,52 +27,112 @@ type deepUrl struct {
 	urls  []string
 }
 
-func Run(url string, depth int, pattern string) {
-	urlQueue := make(chan deepUrl, 0)
-	seenUrl := bloom.New(100, 5)
-	baseUrl := parseBaseURL(url)
-	go scrape(baseUrl, url, depth, urlQueue)
-	seenUrl.AddString(url)
-
-	outstanding := 1
-
-	for outstanding > 0 {
-
-		u := <-urlQueue
-		outstanding--
-
-		if depth <= 0 {
-			continue
-		}
-		for _, url := range u.urls {
-			if isUrlPatternValid(url, pattern) && !seenUrl.TestString(url) {
-				log.Println("going to scrape url :", url)
-				go scrape(baseUrl, url, depth, urlQueue)
-				seenUrl.AddString(url)
-			}
-		}
-	}
+type Fetcher interface {
+	// Fetch returns the body of URL and
+	// a slice of URLs found on that page.
+	Fetch(url string) (body string, urls []string, err error)
 }
 
-func scrape(baseUrl string, url string, depth int, q chan deepUrl) {
+type HttpFetcher struct {
+}
 
+var mux sync.Mutex
+var outstanding int
+
+func (f HttpFetcher) Fetch(url string) (body string, urls []string, err error) {
 	u, err := url2.Parse(url)
 	if err != nil || u.Scheme == "" || u.Host == "" || u.Path == "" {
-		log.Println("invalid input url :", url)
+		log.Println("invalid input url :", url, err)
 		return
 	}
-	res, err := http.Get(u.String())
-
+	timeout := time.Duration(5 * time.Second)
+	client := http.Client{
+		Timeout: timeout,
+	}
+	res, err := client.Get(u.String())
 	if err != nil {
 		log.Println("Error occurred while fetching the url :", url, err)
 		return
 	}
 	defer res.Body.Close()
 
-	urls := extractUrl(res.Body)
+	urls = resolveRelative(parseBaseURL(url), extractUrl(res.Body))
+	b, err := ioutil.ReadAll(res.Body)
+	body = string(b)
+	return body, urls, err
+}
+
+var rateSemaphore chan struct{}
+
+func Run(fetcher Fetcher, url string, depth int, pattern string, rate int) {
+	if rate > MAX_RATE {
+		rate = MAX_RATE
+	}
+	//semaphore channel
+	rateSemaphore = make(chan struct{}, rate)
+	for i := 0; i < rate; i++ {
+		rateSemaphore <- struct{}{}
+	}
+	var wg sync.WaitGroup
+	urlQ := make(chan deepUrl)
+	seenUrl := bloom.New(100000, 5)
+	wg.Add(1)
+	go scrape(fetcher, url, depth, &urlQ, &wg)
+
+	seenUrl.AddString(url)
+	//Doing Breadth First Scraping therefore outstanding denotes the height of the tree
+
+	for outstanding := 1; outstanding > 0; decreaseCounter() {
+		fmt.Println("1.outstanding value is ", outstanding)
+
+		u := <-urlQ
+		if u.depth <= 1 {
+			continue
+		}
+		for _, url := range u.urls {
+			if isUrlPatternValid(url, pattern) && !seenUrl.TestString(url) {
+				increaseCounter()
+				seenUrl.AddString(url)
+				wg.Add(1)
+				scrape(fetcher, url, depth, &urlQ, &wg)
+
+			}
+		}
+
+	}
+	wg.Wait()
+}
+
+func increaseCounter() {
+	mux.Lock()
+	outstanding++
+	mux.Unlock()
+}
+
+func decreaseCounter() {
+	mux.Lock()
+	outstanding--
+	mux.Unlock()
+}
+
+func scrape(fetcher Fetcher, url string, depth int, q *chan deepUrl, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	//honor rate limit
+	<-rateSemaphore
+	_, urls, err := fetcher.Fetch(url)
+	rateSemaphore <- struct{}{}
+
+	if err != nil {
+		log.Println("Error occurred while fetching the url :", url, err)
+		return
+	}
 
 	if len(urls) > 0 {
-		q <- deepUrl{depth - 1, resolveRelative(baseUrl, urls)}
+		*q <- deepUrl{depth - 1, urls}
+		//increaseCounter()
+		fmt.Println("2.outstanding value is ", outstanding)
+		fmt.Println("Picking up at depth and url and # of urls", url, depth, urls)
 	}
 }
 
@@ -78,8 +145,7 @@ func parseBaseURL(u string) string {
 }
 
 func resolveRelative(baseURL string, hrefs []string) []string {
-	internalUrls := []string{}
-
+	var internalUrls []string
 	for _, href := range hrefs {
 		u, _ := url2.Parse(href)
 
@@ -100,11 +166,10 @@ func resolveRelative(baseURL string, hrefs []string) []string {
 		}
 		internalUrls = append(internalUrls, resolvedURL)
 	}
-
 	return internalUrls
 }
 func extractUrl(body io.ReadCloser) []string {
-	urls := make([]string, 1, 1)
+	urls := make([]string, 1)
 	z := html.NewTokenizer(body)
 
 	for {
@@ -126,7 +191,7 @@ func extractUrl(body io.ReadCloser) []string {
 
 			if ok {
 
-				log.Printf("found link %s", url)
+				//log.Printf("found link %s", url)
 				u, err := url2.Parse(url)
 				if err == nil {
 					urls = append(urls, u.String())
