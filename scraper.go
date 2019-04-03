@@ -36,9 +36,6 @@ type Fetcher interface {
 type HttpFetcher struct {
 }
 
-var mux sync.Mutex
-var outstanding int
-
 func (f HttpFetcher) Fetch(url string) (body string, urls []string, err error) {
 	u, err := url2.Parse(url)
 	if err != nil || u.Scheme == "" || u.Host == "" || u.Path == "" {
@@ -82,7 +79,7 @@ func Run(fetcher Fetcher, url string, depth int, pattern string, rate int) {
 	seenUrl.AddString(url)
 	//Doing Breadth First Scraping therefore outstanding denotes the height of the tree
 
-	for outstanding := 1; outstanding > 0; decreaseCounter() {
+	for outstanding := 1; outstanding > 0; outstanding-- {
 		fmt.Println("1.outstanding value is ", outstanding)
 
 		u := <-urlQ
@@ -91,7 +88,7 @@ func Run(fetcher Fetcher, url string, depth int, pattern string, rate int) {
 		}
 		for _, url := range u.urls {
 			if isUrlPatternValid(url, pattern) && !seenUrl.TestString(url) {
-				increaseCounter()
+				outstanding++
 				seenUrl.AddString(url)
 				wg.Add(1)
 				scrape(fetcher, url, depth, &urlQ, &wg)
@@ -101,18 +98,6 @@ func Run(fetcher Fetcher, url string, depth int, pattern string, rate int) {
 
 	}
 	wg.Wait()
-}
-
-func increaseCounter() {
-	mux.Lock()
-	outstanding++
-	mux.Unlock()
-}
-
-func decreaseCounter() {
-	mux.Lock()
-	outstanding--
-	mux.Unlock()
 }
 
 func scrape(fetcher Fetcher, url string, depth int, q *chan deepUrl, wg *sync.WaitGroup) {
@@ -130,8 +115,6 @@ func scrape(fetcher Fetcher, url string, depth int, q *chan deepUrl, wg *sync.Wa
 
 	if len(urls) > 0 {
 		*q <- deepUrl{depth - 1, urls}
-		//increaseCounter()
-		fmt.Println("2.outstanding value is ", outstanding)
 		fmt.Println("Picking up at depth and url and # of urls", url, depth, urls)
 	}
 }
