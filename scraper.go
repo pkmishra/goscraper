@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	url2 "net/url"
@@ -19,7 +20,9 @@ import (
 )
 
 const (
-	MAX_RATE = 3
+	MAX_RATE     = 3
+	HTTP_TIMEOUT = 10
+	AGENTS       = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:67.0) Gecko/20100101 Firefox/67.0,Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36#Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246#Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:15.0) Gecko/20100101 Firefox/15.0.1#Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36"
 )
 
 type deepUrl struct {
@@ -42,11 +45,17 @@ func (f HttpFetcher) Fetch(url string) (body string, urls []string, err error) {
 		log.Println("invalid input url :", url, err)
 		return
 	}
-	timeout := time.Duration(5 * time.Second)
+	timeout := time.Duration(HTTP_TIMEOUT * time.Second)
+	headers := strings.Split(AGENTS, "#")
 	client := http.Client{
 		Timeout: timeout,
 	}
-	res, err := client.Get(u.String())
+	s := rand.NewSource(time.Now().Unix())
+	r := rand.New(s) // initialize local pseudorandom generator
+
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	req.Header.Set("User-Agent", headers[r.Intn(len(headers))])
+	res, err := client.Do(req)
 	if err != nil {
 		log.Println("Error occurred while fetching the url :", url, err)
 		return
