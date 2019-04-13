@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/pkmishra/goscraper)](https://goreportcard.com/report/github.com/pkmishra/goscraper)
+
 ### TODO
 * Given a link should be able to crawl all the hyperlinks with given pattern
 up to given depth - Done
