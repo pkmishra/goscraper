@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	MAX_RATE     = 3
-	HTTP_TIMEOUT = 10
-	AGENTS       = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:67.0) Gecko/20100101 Firefox/67.0,Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36#Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246#Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:15.0) Gecko/20100101 Firefox/15.0.1#Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36"
+	maxRate     = 3
+	httpTimeout = 10
+	agents      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:67.0) Gecko/20100101 Firefox/67.0,Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36#Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246#Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:15.0) Gecko/20100101 Firefox/15.0.1#Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36"
 )
 
 type deepUrl struct {
@@ -30,12 +30,13 @@ type deepUrl struct {
 	urls  []string
 }
 
+// Fetch returns the body of URL and
+// a slice of URLs found on that page.
 type Fetcher interface {
-	// Fetch returns the body of URL and
-	// a slice of URLs found on that page.
 	Fetch(url string) (body string, urls []string, err error)
 }
 
+//HTTP implementation of fetcher
 type HttpFetcher struct {
 }
 
@@ -45,8 +46,8 @@ func (f HttpFetcher) Fetch(url string) (body string, urls []string, err error) {
 		log.Println("invalid input url :", url, err)
 		return
 	}
-	timeout := time.Duration(HTTP_TIMEOUT * time.Second)
-	headers := strings.Split(AGENTS, "#")
+	timeout := time.Duration(httpTimeout * time.Second)
+	headers := strings.Split(agents, "#")
 	client := http.Client{
 		Timeout: timeout,
 	}
@@ -70,9 +71,10 @@ func (f HttpFetcher) Fetch(url string) (body string, urls []string, err error) {
 
 var rateSemaphore chan struct{}
 
+//main function to call
 func Run(fetcher Fetcher, url string, depth int, pattern string, rate int) {
-	if rate > MAX_RATE {
-		rate = MAX_RATE
+	if rate > maxRate {
+		rate = maxRate
 	}
 	//semaphore channel
 	rateSemaphore = make(chan struct{}, rate)
